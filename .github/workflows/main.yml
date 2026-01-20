@@ -1,4 +1,4 @@
-name: TGD - Telegram Downloader
+name: TGD - High Speed Link
 
 on:
   workflow_dispatch:
@@ -11,6 +11,8 @@ on:
 jobs:
   tgd-task:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create releases
     
     steps:
     - name: Checkout
@@ -27,22 +29,38 @@ jobs:
         sudo apt-get install -y aria2
         pip install requests
 
-    - name: Start Local Bot API Server
+    - name: Download File (Aria2 Beast Mode)
+      id: download
       run: |
-        # Mount the entire workspace to /data in the container
-        docker run -d -p 8081:8081 --name telegram-bot-api \
-          -e TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }} \
-          -e TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }} \
-          -e TELEGRAM_LOCAL=true \
-          -v ${{ github.workspace }}:/data \
-          aiogram/telegram-bot-api:latest
+        URL="${{ github.event.inputs.url }}"
+        # Extract filename
+        FILENAME=$(basename "$URL" | cut -d? -f1)
+        if [ -z "$FILENAME" ]; then FILENAME="file_$(date +%s).mp4"; fi
         
-        sleep 5
-        echo "⚡ Local server is READY."
+        echo "📥 Downloading $FILENAME"
+        aria2c -x 16 -s 16 -k 1M --user-agent="Mozilla/5.0" --console-log-level=warn "$URL" -o "$FILENAME"
+        
+        echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+        echo "✅ Download complete"
 
-    - name: Download and Upload
+    - name: Upload to GitHub Release
+      id: upload
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "dl-$(date +%s)"
+        name: "Download: ${{ steps.download.outputs.filename }}"
+        files: ${{ steps.download.outputs.filename }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify Telegram
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
       run: |
-        python scripts/downloader.py "${{ github.event.inputs.url }}"
+        # Get the direct asset download URL
+        # We find the specific file URL from the release assets
+        DL_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.upload.outputs.tag_name }}/${{ steps.download.outputs.filename }}"
+        python scripts/downloader.py "${{ steps.download.outputs.filename }}" "$DL_URL"
