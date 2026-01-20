@@ -12,7 +12,7 @@ jobs:
   tgd-task:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Required to create releases
+      contents: write
     
     steps:
     - name: Checkout
@@ -40,14 +40,16 @@ jobs:
         echo "📥 Downloading $FILENAME"
         aria2c -x 16 -s 16 -k 1M --user-agent="Mozilla/5.0" --console-log-level=warn "$URL" -o "$FILENAME"
         
+        TAG_NAME="dl-$(date +%s)"
         echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+        echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
         echo "✅ Download complete"
 
     - name: Upload to GitHub Release
       id: upload
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "dl-$(date +%s)"
+        tag_name: ${{ steps.download.outputs.tag_name }}
         name: "Download: ${{ steps.download.outputs.filename }}"
         files: ${{ steps.download.outputs.filename }}
         draft: false
@@ -60,7 +62,5 @@ jobs:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
       run: |
-        # Get the direct asset download URL
-        # We find the specific file URL from the release assets
-        DL_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.upload.outputs.tag_name }}/${{ steps.download.outputs.filename }}"
+        DL_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.download.outputs.tag_name }}/${{ steps.download.outputs.filename }}"
         python scripts/downloader.py "${{ steps.download.outputs.filename }}" "$DL_URL"
