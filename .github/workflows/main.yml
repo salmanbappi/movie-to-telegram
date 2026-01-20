@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'Movie Download URL'
+        description: 'Download URL'
         required: true
         type: string
 
 jobs:
-  download-and-upload:
+  tgd-task:
     runs-on: ubuntu-latest
     
     steps:
@@ -21,24 +21,15 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install Tools
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y aria2
         pip install requests tqdm
 
-    - name: Download Movie (Aria2 Beast Mode)
-      run: |
-        # Using 16 connections for maximum speed
-        aria2c -x 16 -s 16 -k 1M --user-agent="Mozilla/5.0" --console-log-level=warn --summary-interval=1 "${{ github.event.inputs.url }}"
-        
-    - name: Upload to Telegram
+    - name: Download and Upload
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
       run: |
-        # Find the downloaded file (it might have a different name than the link)
-        # We exclude scripts and hidden files
-        FILENAME=$(ls -t | grep -vE "scripts|gradle|LICENSE|README|\.github|\.git" | head -n 1)
-        echo "📂 File found: $FILENAME"
-        python scripts/downloader.py "$FILENAME"
+        python scripts/downloader.py "${{ github.event.inputs.url }}"
