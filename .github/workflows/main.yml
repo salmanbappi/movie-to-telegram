@@ -1,4 +1,4 @@
-name: Download and Upload Movie
+name: TGD - Telegram Downloader
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         type: string
 
 jobs:
-  movie-task:
+  download-and-upload:
     runs-on: ubuntu-latest
     
     steps:
@@ -24,7 +24,18 @@ jobs:
     - name: Install dependencies
       run: pip install requests tqdm
 
-    - name: Download and Upload
+    - name: Run local Telegram Bot API Server (2GB Support)
+      run: |
+        docker run -d -p 8081:8081 --name telegram-bot-api \
+          -e TELEGRAM_API_ID=2040 \
+          -e TELEGRAM_API_HASH=b18441a17074072000020c086a3746a4 \
+          aiogram/telegram-bot-api:latest
+        
+        echo "⏳ Waiting for local Bot API server to start..."
+        timeout 30s bash -c 'until curl -s http://localhost:8081 > /dev/null; do sleep 1; done'
+        echo "⚡ Local server is READY."
+
+    - name: Download and Upload Movie
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
