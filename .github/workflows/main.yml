@@ -29,16 +29,16 @@ jobs:
 
     - name: Start Local Bot API Server
       run: |
-        # Using a reliable public ID/Hash for the local server
+        # Mount the entire workspace to /data in the container
         docker run -d -p 8081:8081 --name telegram-bot-api \
-          -e TELEGRAM_API_ID=2040 \
-          -e TELEGRAM_API_HASH=b18441a17074072000020c086a3746a4 \
+          -e TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }} \
+          -e TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }} \
           -e TELEGRAM_LOCAL=true \
-          -v /home/runner/work/movie-to-telegram/movie-to-telegram:/data \
+          -v ${{ github.workspace }}:/data \
           aiogram/telegram-bot-api:latest
         
         sleep 5
-        echo "⚡ Local server is running."
+        echo "⚡ Local server is READY."
 
     - name: Download and Upload
       env:
