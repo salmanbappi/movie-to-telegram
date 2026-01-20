@@ -25,7 +25,20 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y aria2
-        pip install pyrogram tgcrypto requests
+        pip install requests
+
+    - name: Start Local Bot API Server
+      run: |
+        # Using a reliable public ID/Hash for the local server
+        docker run -d -p 8081:8081 --name telegram-bot-api \
+          -e TELEGRAM_API_ID=2040 \
+          -e TELEGRAM_API_HASH=b18441a17074072000020c086a3746a4 \
+          -e TELEGRAM_LOCAL=true \
+          -v /home/runner/work/movie-to-telegram/movie-to-telegram:/data \
+          aiogram/telegram-bot-api:latest
+        
+        sleep 5
+        echo "⚡ Local server is running."
 
     - name: Download and Upload
       env:

@@ -1,65 +1,22 @@
 import os
 import sys
-import asyncio
-from pyrogram import Client
-from urllib.parse import unquote
-import subprocess
+import requests
 import time
-
-# Official Telegram Desktop public test keys
-API_ID = 2040
-API_HASH = "b18441a17074072000020c086a3746a4"
-
-async def upload_file(bot_token, chat_id, filepath):
-    print(f"🚀 Initializing Pyrogram (2GB Upload Mode)...")
-    
-    # We use a unique session name to avoid conflicts
-    session_name = f"tgd_{int(time.time())}"
-    
-    app = Client(
-        session_name,
-        api_id=API_ID,
-        api_hash=API_HASH,
-        bot_token=bot_token,
-        in_memory=True
-    )
-    
-    async with app:
-        print(f"📤 Uploading: {os.path.basename(filepath)}")
-        
-        last_update_time = 0
-        def progress(current, total):
-            nonlocal last_update_time
-            now = time.time()
-            if now - last_update_time > 5 or current == total:
-                percentage = (current / total) * 100
-                speed = current / (now - start_time + 0.1)
-                print(f"📊 Uploading: {percentage:.1f}% | Speed: {speed / (1024*1024):.1f} MB/s")
-                last_update_time = now
-
-        start_time = time.time()
-        await app.send_document(
-            chat_id=int(chat_id),
-            document=filepath,
-            caption=f"🎬 {os.path.basename(filepath)}",
-            progress=progress
-        )
-        print("\n🎉 Upload Successful!")
+import subprocess
+from urllib.parse import unquote, urlparse
 
 def download_with_aria2(url):
     print(f"📥 Downloading with Aria2: {url}")
-    # Extract filename or use default
     filename = unquote(url.split("/")[-1].split("?")[0])
     if not filename or len(filename) < 3: 
         filename = f"file_{int(time.time())}.mp4"
     
-    # We use a temp directory to avoid picking up wrong files
     os.makedirs("downloads", exist_ok=True)
-    file_path = os.path.join("downloads", filename)
+    file_path = os.path.join(os.getcwd(), "downloads", filename)
 
     cmd = [
         "aria2c", "-x", "16", "-s", "16", "-k", "1M",
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--user-agent=Mozilla/5.0",
         "--console-log-level=warn", "--summary-interval=5",
         "--allow-overwrite=true",
         "-d", "downloads",
@@ -67,37 +24,53 @@ def download_with_aria2(url):
         url
     ]
     subprocess.run(cmd, check=True)
+    return file_path
+
+def upload_to_telegram(bot_token, chat_id, filepath):
+    # 1. LOGOUT from official server (Crucial for Local Server to work)
+    print("🔌 Disconnecting bot from official Telegram servers...")
+    requests.get(f"https://api.telegram.org/bot{bot_token}/logOut")
     
-    if os.path.exists(file_path):
-        return file_path
+    # 2. Wait for local server
+    print(f"🚀 Uploading to Telegram (2GB Mode)...")
+    base_url = "http://localhost:8081"
+    url = f"{base_url}/bot{bot_token}/sendDocument"
     
-    raise Exception("Download failed: File not found.")
+    # Use the absolute path for the local server
+    abs_path = os.path.abspath(filepath)
+    
+    data = {
+        'chat_id': chat_id,
+        'document': f"file://{abs_path}", # Special local server syntax
+        'caption': f"🎬 {os.path.basename(filepath)}"
+    }
+    
+    # Since it's a local file, the server handles the upload internally and instantly
+    response = requests.post(url, data=data)
+    
+    if response.status_code == 200:
+        print("🎉 Upload Successful!")
+    else:
+        print(f"❌ Upload failed: {response.text}")
+        # Fallback to standard upload if local fails
+        print("🔄 Attempting standard upload fallback...")
+        with open(filepath, 'rb') as f:
+            requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", 
+                          data={'chat_id': chat_id}, files={'document': f})
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit(1)
-        
     url = sys.argv[1]
     token = os.environ.get("TELEGRAM_TOKEN")
     chat = os.environ.get("TELEGRAM_TO")
     
-    if not token or not chat:
-        print("Error: Missing credentials.")
-        sys.exit(1)
-        
-    file_path = None
     try:
-        # 1. Download
-        file_path = download_with_aria2(url)
-        print(f"✅ Downloaded: {file_path}")
-        
-        # 2. Upload
-        asyncio.run(upload_file(token, chat, file_path))
-        
+        path = download_with_aria2(url)
+        print(f"✅ Downloaded to: {path}")
+        upload_to_telegram(token, chat, path)
     except Exception as e:
-        print(f"\n💥 Error: {str(e)}")
+        print(f"💥 Error: {e}")
         sys.exit(1)
     finally:
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"🧹 Cleaned up: {file_path}")
+        # Cleanup
+        if 'path' in locals() and os.path.exists(path):
+            os.remove(path)
