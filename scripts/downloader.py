@@ -1,65 +1,81 @@
 import os
 import sys
-import requests
-from tqdm import tqdm
+import asyncio
+from telethon import TelegramClient
 from urllib.parse import unquote, urlparse
+import subprocess
 
-def download_file(url, filename):
-    print(f"📥 Downloading: {url}")
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': f"{urlparse(url).scheme}://{urlparse(url).netloc}/"
-    }
-    response = requests.get(url, headers=headers, stream=True, timeout=60)
-    response.raise_for_status()
-    total_size = int(response.headers.get('content-length', 0))
-    
-    with open(filename, 'wb') as f, tqdm(
-        total=total_size, unit='iB', unit_scale=True, unit_divisor=1024, desc=filename[:20]
-    ) as bar:
-        for data in response.iter_content(chunk_size=1024*1024):
-            if data:
-                f.write(data)
-                bar.update(len(data))
-    print(f"✅ Download complete: {filename}")
+# Official Telegram Android API credentials (Public)
+API_ID = 6
+API_HASH = "eb06d4ab35275919747c3507256d98d1"
 
-def upload_to_telegram(bot_token, chat_id, filepath):
-    print(f"🚀 Uploading to Telegram (2GB Mode)...")
-    
-    # We MUST use the local server address
-    base_url = "http://localhost:8081"
-    url = f"{base_url}/bot{bot_token}/sendDocument"
-    
-    # For local server, we just send the path, but since we are in Docker/Actions, 
-    # we send it as a standard multipart file which the local server then proxies.
-    with open(filepath, 'rb') as f:
-        files = {'document': f}
-        data = {'chat_id': chat_id, 'caption': f"🎬 {os.path.basename(filepath)}"}
-        response = requests.post(url, data=data, files=files, timeout=None)
+async def upload_file(bot_token, chat_id, filepath):
+    print(f"🚀 Initializing Telethon (2GB Upload Mode)...")
+    async with TelegramClient('bot_session', API_ID, API_HASH) as client:
+        await client.start(bot_token=bot_token)
         
-    if response.status_code == 200:
-        print(f"🎉 Upload Successful!")
-    else:
-        print(f"❌ Upload failed: {response.text}")
-        sys.exit(1)
+        print(f"📤 Uploading: {os.path.basename(filepath)}")
+        
+        # Define progress callback
+        def progress_callback(current, total):
+            percentage = (current / total) * 100
+            print(f"\r📊 Uploading: {percentage:.1f}% ({current}/{total})", end="", flush=True)
+
+        await client.send_file(
+            int(chat_id), 
+            filepath, 
+            caption=f"🎬 {os.path.basename(filepath)}",
+            progress_callback=progress_callback
+        )
+        print("\n🎉 Upload Successful!")
+
+def download_with_aria2(url):
+    print(f"📥 Downloading with Aria2: {url}")
+    # Extract filename or use default
+    filename = unquote(url.split("/")[-1].split("?")[0])
+    if not filename: filename = "file.mp4"
+    
+    cmd = [
+        "aria2c", "-x", "16", "-s", "16", "-k", "1M",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--console-log-level=warn", "--summary-interval=1",
+        url
+    ]
+    subprocess.run(cmd, check=True)
+    
+    # Find the file (aria2 might have changed the name slightly)
+    # We look for the most recently modified file that isn't a script
+    files = [f for f in os.listdir('.') if os.path.isfile(f) and f not in ['downloader.py', 'main.yml']]
+    if not files:
+        raise Exception("Download failed: No file found.")
+    
+    return max(files, key=os.path.getmtime)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        print("Usage: python downloader.py <URL>")
         sys.exit(1)
         
-    download_url = sys.argv[1]
-    bot_token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_TO")
+    url = sys.argv[1]
+    token = os.environ.get("TELEGRAM_TOKEN")
+    chat = os.environ.get("TELEGRAM_TO")
     
-    filename = unquote(download_url.split("/")[-1].split("?")[0])
-    if not filename: filename = "file.mp4"
+    if not token or not chat:
+        print("Error: Missing environment variables.")
+        sys.exit(1)
         
     try:
-        download_file(download_url, filename)
-        upload_to_telegram(bot_token, chat_id, filename)
+        # 1. Download
+        file_path = download_with_aria2(url)
+        print(f"✅ Downloaded: {file_path}")
+        
+        # 2. Upload
+        asyncio.run(upload_file(token, chat, file_path))
+        
     except Exception as e:
-        print(f"💥 Error: {str(e)}")
+        print(f"\n💥 Error: {str(e)}")
         sys.exit(1)
     finally:
-        if os.path.exists(filename):
-            os.remove(filename)
+        # Cleanup
+        if 'file_path' in locals() and os.path.exists(file_path):
+            os.remove(file_path)
