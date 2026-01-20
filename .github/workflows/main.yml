@@ -27,8 +27,9 @@ jobs:
     - name: Run local Telegram Bot API Server (2GB Support)
       run: |
         docker run -d -p 8081:8081 --name telegram-bot-api \
-          -e TELEGRAM_API_ID=2040 \
-          -e TELEGRAM_API_HASH=b18441a17074072000020c086a3746a4 \
+          -e TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }} \
+          -e TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }} \
+          -e TELEGRAM_LOCAL=true \
           aiogram/telegram-bot-api:latest
         
         echo "⏳ Waiting for local Bot API server to start..."
